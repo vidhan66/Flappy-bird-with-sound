@@ -1,0 +1,111 @@
+import cv2
+import numpy as np
+import random
+import pyaudio
+
+SCREEN_WIDTH, SCREEN_HEIGHT = 500, 800
+BIRD_SIZE = 30  # Size used for collision detection
+VISUAL_BIRD_SIZE = 80  # Size used for displaying the bird image
+PIPE_WIDTH = 80
+PIPE_GAP = 250
+GRAVITY = 0.7
+JUMP_VELOCITY = -5
+PIPE_SPEED = 3
+
+WHITE = (255, 255, 255)
+BLACK = (0, 0, 0)
+RED = (0, 0, 255)
+GOLDEN = (55,175,212)
+
+CHUNK = 1024
+FORMAT = pyaudio.paInt16
+CHANNELS = 1
+RATE = 44100
+p = pyaudio.PyAudio()
+
+def get_sound_intensity(stream):
+    data = np.frombuffer(stream.read(CHUNK, exception_on_overflow=False), dtype=np.int16)
+    intensity = np.linalg.norm(data) / 1000
+    return intensity
+
+stream = p.open(format=FORMAT, channels=CHANNELS, rate=RATE, input=True, frames_per_buffer=CHUNK)
+
+bird_image = cv2.imread('bird.webp', cv2.IMREAD_UNCHANGED)  # Ensure you have 'bird.webp' in your working directory
+bird_image = cv2.resize(bird_image, (VISUAL_BIRD_SIZE, (2 * VISUAL_BIRD_SIZE) // 3))
+
+if bird_image.shape[2] == 4:
+    alpha_bird = bird_image[:, :, 3] / 255.0  # Extract alpha channel if present
+    bird_image = bird_image[:, :, :3]  # Remove alpha channel for blending
+else:
+    alpha_bird = np.ones((bird_image.shape[0], bird_image.shape[1]))  # No alpha channel, treat as fully opaque
+
+def create_pipe():
+    pipe_height = random.randint(150, 450)
+    return {
+        "x": SCREEN_WIDTH,
+        "top": pipe_height - PIPE_GAP // 2,
+        "bottom": pipe_height + PIPE_GAP // 2,
+        "passed": False  # To track if the bird has already passed the pipe
+    }
+
+bird_y = SCREEN_HEIGHT // 2
+bird_x = 50  # Fixed x-position of the bird
+bird_velocity = 0
+pipes = []
+score = 0
+game_over = False
+
+while True:
+    
+    intensity = get_sound_intensity(stream)
+    if intensity > 2.0:  # Adjust the threshold as needed
+        bird_velocity = JUMP_VELOCITY
+
+    bird_velocity += GRAVITY
+    bird_y += bird_velocity
+
+    if bird_y >= SCREEN_HEIGHT - BIRD_SIZE or bird_y <= 0:
+        game_over = True
+
+    for pipe in pipes:
+        pipe['x'] -= PIPE_SPEED
+        if bird_x < pipe['x'] + PIPE_WIDTH and bird_x + BIRD_SIZE > pipe['x']:
+            if bird_y < pipe['top'] or bird_y + BIRD_SIZE > pipe['bottom']:
+                game_over = True
+        if not pipe['passed'] and pipe['x'] + PIPE_WIDTH < bird_x:  # Bird's x position is at 50
+            score += 1
+            pipe['passed'] = True  # Mark pipe as passed
+
+    pipes = [pipe for pipe in pipes if pipe['x'] > -PIPE_WIDTH]
+    if len(pipes) == 0 or pipes[-1]['x'] < SCREEN_WIDTH - 300:
+        pipes.append(create_pipe())
+
+    frame = np.ones((SCREEN_HEIGHT, SCREEN_WIDTH, 3), dtype=np.uint8) * 255
+
+    bird_position = (bird_x - (VISUAL_BIRD_SIZE - BIRD_SIZE) // 2, int(bird_y) - (VISUAL_BIRD_SIZE - BIRD_SIZE) // 2)
+    bird_h, bird_w = alpha_bird.shape
+    y1, y2 = bird_position[1], bird_position[1] + bird_h
+    x1, x2 = bird_position[0], bird_position[0] + bird_w
+
+    for c in range(3):  # Loop for color channels
+        frame[y1:y2, x1:x2, c] = (alpha_bird * bird_image[:, :, c] +
+                                  (1 - alpha_bird) * frame[y1:y2, x1:x2, c])
+
+    for pipe in pipes:
+        cv2.rectangle(frame, (pipe['x'], 0), (pipe['x'] + PIPE_WIDTH, pipe['top']), GOLDEN, -1)
+        cv2.rectangle(frame, (pipe['x'], pipe['bottom']), (pipe['x'] + PIPE_WIDTH, SCREEN_HEIGHT), GOLDEN, -1)
+    cv2.putText(frame, f'Score: {score}', (SCREEN_WIDTH // 2 - 50, 50), cv2.FONT_HERSHEY_SIMPLEX, 1, RED, 2)
+
+    if game_over:
+        cv2.putText(frame, 'GAME OVER', (SCREEN_WIDTH // 4, SCREEN_HEIGHT // 2), cv2.FONT_HERSHEY_SIMPLEX, 2, RED, 3)
+        cv2.imshow('Sound Bird Game', frame)
+        cv2.waitKey(2000)
+        break
+    cv2.imshow('Sound Bird Game', frame)
+    if cv2.waitKey(1) & 0xFF == ord('q'):
+        break
+
+stream.stop_stream()
+stream.close()
+p.terminate()
+cv2.destroyAllWindows()
