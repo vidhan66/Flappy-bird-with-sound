@@ -16,8 +16,7 @@ A sound-controlled version of the classic Flappy Bird game, developed using Pyth
 ## Installation
 To install the required libraries, use the following commands:
 
-```bash
-pip install opencv-python numpy pyaudio```
+pip install opencv-python numpy pyaudio
 
 ## Bird Image
 Ensure bird.webp is in the same directory as the script or update the file path in the code to the location of your bird image.
